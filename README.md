@@ -8,7 +8,31 @@ Built with Godot .NET, C#, and the Forward+ renderer. The interface supports Eng
 
 ## Get running
 
-Install Godot **4.7.2 .NET**, the **.NET 8 SDK**, and Make for the convenience commands. The project uses C# 12. Open `project.godot` in the .NET edition of Godot to work through the editor.
+Install Godot **4.7.2 .NET** and the **.NET 8 SDK**. The project uses C# 12. You can open `project.godot` in the .NET edition of Godot and press **F5** to play.
+
+### Windows
+
+Double-click `Play World.bat` to play. The launcher uses the local tools in `build/windows-tools` when present. It also works with an installed .NET 8 SDK and the `GODOT` environment variable set to the full path of your Godot .NET executable.
+
+Download [Godot 4.7.2 .NET for Windows](https://godotengine.org/download/archive/4.7.2-stable/) and the [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) for your architecture. Extract the entire Godot ZIP so the engine, console executable, and supporting files stay together.
+
+Open PowerShell in the project directory and substitute your path to the extracted executable.
+
+```powershell
+.\run-windows.ps1 -Godot 'C:\Tools\Godot\Godot_v4.7.2-stable_mono_win64.exe'
+```
+
+The script builds C#, imports assets, then starts the game. It also accepts the companion `_console.exe` and reads `GODOT` if you omit `-Godot`. Add `-Spawn '-58,-14,100,2'` to start at a particular viewpoint or `-Headless` for a startup check that exits after 120 frames.
+
+If PowerShell blocks local scripts, you can use `RemoteSigned` for just the launcher process.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\run-windows.ps1 -Godot 'C:\Tools\Godot\Godot_v4.7.2-stable_mono_win64.exe'
+```
+
+### Make
+
+The Make commands use a POSIX shell and standard Unix tools.
 
 From the project directory, point Make at your engine executable.
 

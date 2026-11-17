@@ -1,0 +1,2 @@
+# Godot rewrites import settings with LF on every platform.
+*.import text eol=lf
