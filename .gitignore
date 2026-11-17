@@ -1,0 +1,40 @@
+# Godot regenerates imported resources and editor state here.
+/.godot/
+/.import/
+
+# .NET build output and per-user project settings.
+**/bin/
+**/obj/
+*.user
+*.suo
+*.userprefs
+*.sln.docstates
+/TestResults/
+
+# Local captures, exports, and diagnostics.
+/screenshots/
+/exports/
+/build/
+/dist/
+*.log
+/core
+/core.*
+/mono_crash.*
+
+# Machine-local editor and agent preferences.
+/.vs/
+/.idea/
+/.vscode/
+/.codex/
+/.claude/settings.local.json
+/.claude/worktrees/
+
+# Local environment files and operating-system metadata.
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+*~
+
+# Keep source assets, *.import settings, *.uid files, and .agents/skills tracked.

@@ -1,0 +1,89 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/World/ChunkManager.cs" id="1_chunks"]
+[ext_resource type="Script" path="res://scripts/Player/Player.cs" id="2_player"]
+[ext_resource type="Script" path="res://scripts/World/Water.cs" id="3_water"]
+[ext_resource type="Script" path="res://scripts/UI/Hud.cs" id="4_hud"]
+[ext_resource type="Shader" path="res://shaders/water.gdshader" id="5_water_shader"]
+[ext_resource type="Shader" path="res://shaders/sky.gdshader" id="6_sky_shader"]
+[ext_resource type="Script" path="res://scripts/World/DayNight.cs" id="7_daynight"]
+[ext_resource type="Script" path="res://scripts/Player/PhotoMode.cs" id="8_photo"]
+[ext_resource type="Script" path="res://scripts/UI/PauseMenu.cs" id="9_menu"]
+[ext_resource type="Script" path="res://scripts/UI/PhotoGallery.cs" id="10_gallery"]
+
+[sub_resource type="ShaderMaterial" id="SkyMaterial"]
+shader = ExtResource("6_sky_shader")
+
+[sub_resource type="Sky" id="Sky"]
+sky_material = SubResource("SkyMaterial")
+process_mode = 2
+radiance_size = 2
+
+[sub_resource type="Environment" id="Environment"]
+background_mode = 2
+sky = SubResource("Sky")
+ambient_light_source = 3
+ambient_light_sky_contribution = 0.5
+reflected_light_source = 2
+tonemap_mode = 4
+ssao_enabled = true
+glow_enabled = true
+glow_intensity = 0.3
+fog_enabled = true
+fog_light_color = Color(0.64, 0.76, 0.88, 1)
+fog_density = 0.0035
+fog_aerial_perspective = 0.5
+fog_sky_affect = 0.0
+
+[sub_resource type="ShaderMaterial" id="WaterMaterial"]
+render_priority = 1
+shader = ExtResource("5_water_shader")
+
+[sub_resource type="PlaneMesh" id="WaterPlane"]
+material = SubResource("WaterMaterial")
+size = Vector2(560, 560)
+subdivide_width = 96
+subdivide_depth = 96
+
+[node name="Main" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.7, 0.65, 0)
+light_color = Color(1, 0.96, 0.88, 1)
+light_energy = 1.2
+shadow_enabled = true
+directional_shadow_max_distance = 70.0
+directional_shadow_mode = 1
+
+[node name="DayNight" type="Node" parent="."]
+script = ExtResource("7_daynight")
+
+[node name="Player" type="Node3D" parent="."]
+script = ExtResource("2_player")
+
+[node name="Camera3D" type="Camera3D" parent="Player"]
+fov = 70.0
+near = 0.15
+far = 700.0
+
+[node name="ChunkManager" type="Node3D" parent="."]
+script = ExtResource("1_chunks")
+
+[node name="Water" type="MeshInstance3D" parent="."]
+mesh = SubResource("WaterPlane")
+script = ExtResource("3_water")
+
+[node name="Hud" type="CanvasLayer" parent="."]
+script = ExtResource("4_hud")
+
+[node name="PhotoMode" type="Node" parent="."]
+script = ExtResource("8_photo")
+
+[node name="PauseMenu" type="CanvasLayer" parent="."]
+script = ExtResource("9_menu")
+
+[node name="PhotoGallery" type="CanvasLayer" parent="."]
+script = ExtResource("10_gallery")

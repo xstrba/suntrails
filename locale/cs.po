@@ -1,0 +1,342 @@
+# Czech interface translations.
+msgid ""
+msgstr ""
+"Language: cs\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2;\n"
+
+msgid "World"
+msgstr "Svět"
+
+msgid "Paused"
+msgstr "Pozastaveno"
+
+msgid "Language"
+msgstr "Jazyk"
+
+msgid "Graphics"
+msgstr "Grafika"
+
+msgid "Quality preset"
+msgstr "Kvalita grafiky"
+
+msgid "Low"
+msgstr "Nízká"
+
+msgid "Medium"
+msgstr "Střední"
+
+msgid "High"
+msgstr "Vysoká"
+
+msgid "Ultra"
+msgstr "Nejvyšší"
+
+msgid "Custom"
+msgstr "Vlastní"
+
+msgid "Render distance"
+msgstr "Vzdálenost vykreslování"
+
+msgid "Full tree detail up to"
+msgstr "Plné detaily stromů do"
+
+msgid "Grass distance"
+msgstr "Dohlednost trávy"
+
+msgid "Bushes, ferns, flowers"
+msgstr "Keře, kapradiny a květiny"
+
+msgid "Shadows"
+msgstr "Stíny"
+
+msgid "Off"
+msgstr "Vypnuto"
+
+msgid "Water reflections"
+msgstr "Odrazy na vodě"
+
+msgid "Half resolution"
+msgstr "Poloviční rozlišení"
+
+msgid "Full resolution"
+msgstr "Plné rozlišení"
+
+msgid "Ambient occlusion"
+msgstr "Stínování v rozích (AO)"
+
+msgid "Resolution scale"
+msgstr "Měřítko rozlišení"
+
+msgid "VSync"
+msgstr "Vertikální synchronizace"
+
+msgid "Lower resolution scale is the biggest speed-up: the image is upscaled with AMD FSR.\nDistance changes rebuild the world when you resume."
+msgstr "Snížení měřítka rozlišení nejvíc zvýší výkon. Obraz se zvětší pomocí AMD FSR.\nPo změně dohlednosti se svět při návratu do hry znovu vygeneruje."
+
+msgid "Resume"
+msgstr "Pokračovat ve hře"
+
+msgid "Quit to desktop"
+msgstr "Ukončit hru"
+
+msgid "WASD move · Shift run · Space jump · C toggle crouch · Z toggle prone · Esc menu\n1-4 dawn/day/dusk/night · T pause time · - / = time speed · P photo mode · G gallery"
+msgstr "WASD pohyb · Shift běh · Mezerník skok · C dřep · Z leh · Esc nabídka\n1–4 svítání/den/soumrak/noc · T zastavit čas · - / = rychlost času · P focení · G galerie"
+
+msgid "Click to look around · G gallery"
+msgstr "Kliknutím se rozhlédnete · G galerie"
+
+msgid "{0:0.00}M tris, {1} draws, {2} objects"
+msgstr "{0:0.00} mil. trojúhelníků · {1} vykreslovacích volání · {2} objektů"
+
+msgid "Chunks {0} (+{1} generating)"
+msgstr "Části světa: {0} (dalších {1} se vytváří)"
+
+msgid "paused"
+msgstr "pozastaveno"
+
+msgid "Dawn"
+msgstr "Svítání"
+
+msgid "Day"
+msgstr "Den"
+
+msgid "Dusk"
+msgstr "Soumrak"
+
+msgid "Night"
+msgstr "Noc"
+
+msgid "Lakebed"
+msgstr "Dno jezera"
+
+msgid "Shoreline"
+msgstr "Břeh"
+
+msgid "Alpine Peak"
+msgstr "Horský vrchol"
+
+msgid "Rocky Cliff"
+msgstr "Skalní stěna"
+
+msgid "Highlands"
+msgstr "Vysočina"
+
+msgid "Forest"
+msgstr "Les"
+
+msgid "Meadow"
+msgstr "Louka"
+
+msgid "● PHOTO"
+msgstr "● FOCENÍ"
+
+msgid "Wheel zoom  ·  Hold Q/E lower/raise camera  ·  ↑↓ select  ·  ←→ adjust  ·  Click/Enter shoot  ·  G gallery  ·  P exit"
+msgstr "Kolečko mění přiblížení · Držte Q/E pro snížení/zvýšení fotoaparátu · ↑↓ výběr · ←→ změna · Kliknutí/Enter fotí · G galerie · P zpět"
+
+msgid "Exposing {0:0.0} / {1}"
+msgstr "Probíhá expozice {0:0.0} / {1}"
+
+msgid "Exposure {0}"
+msgstr "Expozice {0}"
+
+msgid "Slow for handheld: use a tripod or hold steady"
+msgstr "Dlouhý čas pro focení z ruky. Použijte stativ nebo držte fotoaparát pevně."
+
+msgid "Tripod"
+msgstr "Stativ"
+
+msgid "Handheld"
+msgstr "Z ruky"
+
+msgid "Photo saved · Press G to see it in the gallery"
+msgstr "Fotka uložena · Klávesou G otevřete galerii"
+
+msgid "Couldn't save the photo · Press G to choose a save folder"
+msgstr "Fotku se nepodařilo uložit · Klávesou G otevřete galerii a vyberte složku"
+
+msgid "Wait for the photo to finish, then press G for the gallery"
+msgstr "Počkejte na dokončení snímku a pak otevřete galerii klávesou G"
+
+msgid "Photo gallery"
+msgstr "Fotogalerie"
+
+msgid "Back to game"
+msgstr "Zpět do hry"
+
+msgid "Save folder"
+msgstr "Složka s fotkami"
+
+msgid "Choose folder…"
+msgstr "Vybrat složku…"
+
+msgid "Choose where to save photos"
+msgstr "Vyberte složku pro ukládání fotek"
+
+msgid "Use this folder"
+msgstr "Použít tuto složku"
+
+# Labels from Godot's folder picker when a native dialog is unavailable.
+msgid "Path:"
+msgstr "Cesta:"
+
+msgid "Favorites:"
+msgstr "Oblíbené:"
+
+msgid "Recent:"
+msgstr "Nedávné:"
+
+msgid "Directories & Files:"
+msgstr "Složky a soubory:"
+
+msgid "Select Current Folder"
+msgstr "Vybrat tuto složku"
+
+msgid "Choose another folder"
+msgstr "Vyberte jinou složku"
+
+msgid "Photos couldn't be saved to that folder. Choose another folder."
+msgstr "Do této složky se nepodařilo uložit fotky. Vyberte jinou složku."
+
+msgid "Sort photos by date or name"
+msgstr "Seřadit fotky podle data nebo názvu"
+
+msgid "Newest first"
+msgstr "Od nejnovějších"
+
+msgid "Oldest first"
+msgstr "Od nejstarších"
+
+msgid "Name A–Z"
+msgstr "Název A–Z"
+
+msgid "Name Z–A"
+msgstr "Název Z–A"
+
+msgid "Opening your photos…"
+msgstr "Načítají se fotky…"
+
+msgid "This folder couldn't be opened"
+msgstr "Složku se nepodařilo otevřít"
+
+msgid "Choose a different save folder to see your photos."
+msgstr "Vyberte jinou složku s fotkami."
+
+msgid "No photos here yet"
+msgstr "Zatím tu nejsou žádné fotky"
+
+msgid "Take a photo in photo mode, or choose a folder that already has photos."
+msgstr "Vyfoťte něco v režimu focení nebo vyberte složku, kde už fotky máte."
+
+msgid "Opening photo…"
+msgstr "Načítá se fotka…"
+
+msgid "This photo couldn't be opened"
+msgstr "Fotku se nepodařilo otevřít"
+
+msgid "File date"
+msgstr "Datum souboru"
+
+msgid "Taken"
+msgstr "Pořízeno"
+
+msgid "Unknown image format"
+msgstr "Neznámý formát obrázku"
+
+msgid "This photo has no saved camera details."
+msgstr "U této fotky nejsou uložené údaje o focení."
+
+msgid "Camera position"
+msgstr "Poloha fotoaparátu"
+
+msgid "Zoom {0:0.#} mm   ·   Aperture f/{1:0.#}"
+msgstr "Ohnisko {0:0.#} mm   ·   Clona f/{1:0.#}"
+
+msgid "Shutter {0}   ·   ISO {1}"
+msgstr "Čas závěrky {0}   ·   ISO {1}"
+
+msgid "Exposure {0:+0.0;-0.0;0.0} EV   ·   Focus {1} ({2})"
+msgstr "Korekce expozice {0:+0.0;-0.0;0.0} EV   ·   Zaostření {1} ({2})"
+
+msgid "auto"
+msgstr "auto"
+
+msgid "manual"
+msgstr "ručně"
+
+msgid "Rename photo…"
+msgstr "Přejmenovat…"
+
+msgid "Rename photo"
+msgstr "Přejmenovat fotku"
+
+msgid "Save name"
+msgstr "Uložit název"
+
+msgid "Photo name"
+msgstr "Název fotky"
+
+msgid "Cancel"
+msgstr "Zrušit"
+
+msgid "Enter a name for this photo."
+msgstr "Zadejte název fotky."
+
+msgid "Use a name without slashes, special symbols, or a dot at the end."
+msgstr "V názvu nepoužívejte lomítka ani zvláštní znaky. Na konci nesmí být tečka."
+
+msgid "A photo already has that name. Try another name."
+msgstr "Fotka s tímto názvem už existuje. Zkuste jiný název."
+
+msgid "This photo couldn't be renamed. Check that the folder allows changes."
+msgstr "Fotku se nepodařilo přejmenovat. Zkontrolujte, že ve složce můžete provádět změny."
+
+msgid "Delete…"
+msgstr "Smazat…"
+
+msgid "Delete photo?"
+msgstr "Smazat fotku?"
+
+msgid "Move “{0}” to the Trash?"
+msgstr "Přesunout fotku „{0}“ do koše?"
+
+msgid "Move to Trash"
+msgstr "Přesunout do koše"
+
+msgid "Keep photo"
+msgstr "Ponechat fotku"
+
+msgid "Couldn't delete photo"
+msgstr "Fotku se nepodařilo smazat"
+
+msgid "The photo couldn't be moved to the Trash. Check that the file is available and the folder allows changes."
+msgstr "Fotku se nepodařilo přesunout do koše. Zkontrolujte, zda soubor stále existuje a zda ve složce můžete provádět změny."
+
+msgid "Full screen"
+msgstr "Celá obrazovka"
+
+msgid "Back to gallery"
+msgstr "Zpět do galerie"
+
+msgid "Zoom out"
+msgstr "Oddálit"
+
+msgid "Fit"
+msgstr "Přizpůsobit"
+
+msgid "Fit photo to screen"
+msgstr "Přizpůsobit fotku obrazovce"
+
+msgid "Zoom in"
+msgstr "Přiblížit"
+
+msgid "Scroll to zoom · Drag to move"
+msgstr "Kolečkem přiblížíte · Tažením posunete"
+
+msgid "{0} photo"
+msgid_plural "{0} photos"
+msgstr[0] "{0} fotka"
+msgstr[1] "{0} fotky"
+msgstr[2] "{0} fotek"
