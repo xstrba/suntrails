@@ -218,6 +218,18 @@ msgstr "Název Z–A"
 msgid "Opening your photos…"
 msgstr "Načítají se fotky…"
 
+msgid "Loading scenery… {0} chunk"
+msgid_plural "Loading scenery… {0} chunks"
+msgstr[0] "Načítá se krajina… {0} část"
+msgstr[1] "Načítá se krajina… {0} části"
+msgstr[2] "Načítá se krajina… {0} částí"
+
+msgid "Loading distant scenery… Hold the camera steady, then try again."
+msgstr "Načítá se vzdálená krajina… Chvíli držte fotoaparát v klidu a zkuste to znovu."
+
+msgid "Some scenery couldn't load. Try lowering the graphics preset in Settings."
+msgstr "Část krajiny se nepodařilo načíst. Zkuste v nastavení snížit kvalitu grafiky."
+
 msgid "This folder couldn't be opened"
 msgstr "Složku se nepodařilo otevřít"
 

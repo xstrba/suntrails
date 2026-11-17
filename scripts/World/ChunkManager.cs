@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Godot;
 
@@ -22,6 +23,8 @@ public partial class ChunkManager : Node3D
     [Export] public int GrassRadius = 2;
     [Export] public bool CastPropShadows = true;
     [Export] public int MaxUploadsPerFrame = 3;
+    const int PhotoMarginChunks = 2;
+    static readonly int MaxGenerationJobs = Math.Clamp(System.Environment.ProcessorCount / 2, 2, 6);
 
     // Grass draws every clump within Near metres, easing down to MinFraction of them at Far
     // (the grass shader widens the surviving blades to compensate).
@@ -30,8 +33,10 @@ public partial class ChunkManager : Node3D
     sealed class ChunkData
     {
         public Vector2I Key;
+        public bool Distant;
         public Vector3[] Vertices;
         public Vector3[] Normals;
+        public Vector2[] TrailEdges;
         public List<InstanceBatch> Batches;
         public List<Collider> Colliders;
     }
@@ -39,32 +44,77 @@ public partial class ChunkManager : Node3D
     sealed class Chunk
     {
         public Node3D Root;
+        public bool Distant;
         public readonly List<MultiMeshInstance3D> Props = new();   // rocks: shown within PropRadius
         public readonly List<MultiMeshInstance3D> Trees = new();   // switched by Godot visibility ranges
+        public readonly List<(MultiMeshInstance3D Node, float Distance)> Plants = new();
         public readonly List<(MultiMeshInstance3D Node, InstanceBatch Batch)> Grass = new();
         public List<Collider> Colliders;
+        public readonly List<MultiMeshInstance3D> Impostors = new();
     }
 
+    sealed class GenerationJob
+    {
+        public Vector2I Key;
+        public bool Distant;
+        public int Revision;
+        public readonly CancellationTokenSource Cancellation = new();
+    }
+
+    sealed record GenerationResult(GenerationJob Job, ChunkData Data, Exception Error);
+
     readonly Dictionary<Vector2I, Chunk> _chunks = new();
-    readonly HashSet<Vector2I> _inFlight = new();
-    readonly ConcurrentQueue<ChunkData> _ready = new();
-    HashSet<Vector2I> _needed = new();
+    readonly Dictionary<Vector2I, GenerationJob> _inFlight = new();
+    readonly ConcurrentQueue<GenerationResult> _ready = new();
+    readonly Dictionary<Vector2I, bool> _needed = new();
+    readonly List<(Vector2I Key, int Priority)> _wanted = new();
+    readonly HashSet<Vector2I> _failed = new();
     Vector2I _playerChunk = new(int.MinValue, int.MinValue);
     Vector2 _lodAt = new(float.MaxValue, float.MaxValue);
+    int _revision;
+    bool _photoActive;
+    double _viewTimer;
+    Transform3D _lastView;
+    float _lastFov;
+    Vector2 _lastViewportSize;
+    bool _lastReflection;
 
     Node3D _player;
+    Camera3D _camera;
+    Water _water;
     ShaderMaterial _terrainMaterial;
+    ShaderMaterial _grassMaterial;
+    float _detailScale = 1;
     int[] _indices;
     Vector2[] _uvs;
     readonly Dictionary<(PropKind, int), (Mesh mesh, Material material)> _propAssets = new();
     TreeImpostors _impostors;
 
     public int LoadedChunks => _chunks.Count;
-    public int PendingChunks => _inFlight.Count;
+    public int PendingChunks
+    {
+        get
+        {
+            int count = 0;
+            foreach (var (key, distant) in _needed)
+                if (!_chunks.TryGetValue(key, out var chunk) || chunk.Distant != distant) count++;
+            return count;
+        }
+    }
+    public int FailedChunks => _failed.Count;
+    // Extend atmospheric layers more gently than terrain: retain a hazy horizon while
+    // keeping telephoto subjects readable inside the longer photo view.
+    public float AtmosphereDistanceScale => _photoActive ? Mathf.Sqrt((float)PhotoRadius / ViewRadius) : 1;
+    int PhotoRadius => Math.Clamp(ViewRadius * 3, 18, 27);
+    int DetailRadius => Math.Min(ViewRadius, Math.Max(GrassRadius, (int)Math.Ceiling(_treeDetail / ChunkSize) + 1));
+    float TreeDetailDistance => _photoActive
+        ? Mathf.Min(_treeDetail * _detailScale, PhotoRadius * ChunkSize + ChunkSize * 0.5f) : _treeDetail;
 
     public override void _Ready()
     {
         _player = GetNode<Node3D>("../Player");
+        _camera = GetNode<Camera3D>("../Player/Camera3D");
+        _water = GetNodeOrNull<Water>("../Water");
         _terrainMaterial = new ShaderMaterial { Shader = GD.Load<Shader>("res://shaders/terrain.gdshader") };
         _terrainMaterial.SetShaderParameter("grass_tex", GD.Load<Texture2D>("res://textures/grass.jpg"));
         _terrainMaterial.SetShaderParameter("sand_tex", GD.Load<Texture2D>("res://textures/sand.jpg"));
@@ -88,6 +138,7 @@ public partial class ChunkManager : Node3D
         rockMat.SetShaderParameter("rock_ah", GD.Load<Texture2D>("res://textures/rock_face_03_albedo_height.png"));
         rockMat.SetShaderParameter("rock_nr", GD.Load<Texture2D>("res://textures/rock_face_03_normal_rough.png"));
         var grassMat = new ShaderMaterial { Shader = GD.Load<Shader>("res://shaders/grass.gdshader") };
+        _grassMaterial = grassMat;
         grassMat.SetShaderParameter("lod_near", GrassLodNear);
         grassMat.SetShaderParameter("lod_far", GrassLodFar);
 
@@ -122,11 +173,34 @@ public partial class ChunkManager : Node3D
         CastPropShadows = g.Shadows > 0;
         _treeShadowEnd = g.Shadows switch { 0 => 0, 1 => 25, 2 => 40, _ => 60 };
         _plantScale = g.Undergrowth;
+        UpdateCameraRange();
         if (!rebuild) return;
+        _revision++;
+        foreach (var job in _inFlight.Values) job.Cancellation.Cancel();
         foreach (var chunk in _chunks.Values) chunk.Root.QueueFree();
         _chunks.Clear();
         _playerChunk = new Vector2I(int.MinValue, int.MinValue);
         _lodAt = new Vector2(float.MaxValue, float.MaxValue);
+    }
+
+    public void SetPhotoMode(bool active)
+    {
+        _photoActive = active;
+        UpdateCameraRange();
+        _playerChunk = new Vector2I(int.MinValue, int.MinValue);
+    }
+
+    void UpdateCameraRange() => _camera.Far = (_photoActive ? PhotoRadius : ViewRadius) * ChunkSize + 120;
+
+    public bool PreparePhotoCapture()
+    {
+        if (_photoActive && (_playerChunk.X == int.MinValue || ViewChanged())) RefreshLayout();
+        return _needed.Count > 0 && PendingChunks == 0;
+    }
+
+    public override void _ExitTree()
+    {
+        foreach (var job in _inFlight.Values) job.Cancellation.Cancel();
     }
 
     void BuildTreeMeshes()
@@ -159,14 +233,16 @@ public partial class ChunkManager : Node3D
 
     public override void _Process(double delta)
     {
+        _viewTimer -= delta;
         var pos = _player.GlobalPosition;
         var pc = new Vector2I(Mathf.FloorToInt(pos.X / ChunkSize), Mathf.FloorToInt(pos.Z / ChunkSize));
-        if (pc != _playerChunk)
+        if (pc != _playerChunk || (_photoActive && _viewTimer <= 0 && ViewChanged()))
         {
             _playerChunk = pc;
             RefreshLayout();
         }
         bool created = UploadReady();
+        StartGeneration();
 
         // Grass density LOD: refresh for new chunks or once the player has walked 2 m.
         var p2 = new Vector2(pos.X, pos.Z);
@@ -179,51 +255,138 @@ public partial class ChunkManager : Node3D
 
     void RefreshLayout()
     {
-        var wanted = new List<(Vector2I key, int distSq)>();
-        _needed = new HashSet<Vector2I>();
-        int r = ViewRadius;
+        var position = _player.GlobalPosition;
+        _playerChunk = new Vector2I(Mathf.FloorToInt(position.X / ChunkSize), Mathf.FloorToInt(position.Z / ChunkSize));
+        _lastView = _camera.GlobalTransform;
+        _lastFov = _camera.Fov;
+        // A subject enlarged by the lens needs the detail it would have at the equivalent
+        // distance through our 24 mm photo lens. Keep the two-chunk buffer on cheap impostors.
+        _detailScale = _photoActive ? Mathf.Max(1, 0.5f / Mathf.Tan(Mathf.DegToRad(_lastFov) / 2)) : 1;
+        _grassMaterial.SetShaderParameter("detail_scale", _detailScale);
+        _lodAt = new Vector2(float.MaxValue, float.MaxValue);
+        _lastViewportSize = GetViewport().GetVisibleRect().Size;
+        _lastReflection = _water?.ReflectionsEnabled == true;
+        _viewTimer = 0.2;
+        _wanted.Clear();
+        _needed.Clear();
+        _failed.Clear();
+        var frustum = _photoActive ? CopyFrustum(_camera) : Array.Empty<Plane>();
+        var reflection = _photoActive && _lastReflection ? ReflectedFrustum(frustum) : Array.Empty<Plane>();
+        int r = _photoActive ? PhotoRadius : ViewRadius;
+        int detailRadius = DetailRadius;
+        float photoDetailEnd = Mathf.Max(_treeDetail, Mathf.Max(PropRadius * ChunkSize,
+            Mathf.Max(GrassRadius * ChunkSize, 75 * _plantScale))) * _detailScale + ChunkSize;
         for (int dz = -r; dz <= r; dz++)
             for (int dx = -r; dx <= r; dx++)
             {
                 int distSq = dx * dx + dz * dz;
                 if (distSq > r * r + 1) continue;
                 var key = new Vector2I(_playerChunk.X + dx, _playerChunk.Y + dz);
-                _needed.Add(key);
+                bool nearby = distSq <= PhotoMarginChunks * PhotoMarginChunks + 1;
+                if (_photoActive && !nearby && !InPhotoFrame(key, frustum, PhotoMarginChunks * ChunkSize) &&
+                    !InPhotoFrame(key, reflection, PhotoMarginChunks * ChunkSize)) continue;
+                bool detailedFrame = InPhotoFrame(key, frustum, ChunkSize / 2) ||
+                    InPhotoFrame(key, reflection, ChunkSize / 2);
+                bool distant = _photoActive && distSq > detailRadius * detailRadius + 1 &&
+                    (distSq * ChunkSize * ChunkSize > photoDetailEnd * photoDetailEnd || !detailedFrame);
+                _needed.Add(key, distant);
                 if (_chunks.TryGetValue(key, out var chunk)) SetVisibility(chunk, key);
-                else if (!_inFlight.Contains(key)) wanted.Add((key, distSq));
+                if (chunk != null && chunk.Distant == distant) continue;
+                bool inFrame = !_photoActive || nearby || InPhotoFrame(key, frustum, 0);
+                _wanted.Add((key, distSq + (inFrame ? 0 : r * r + 1)));
             }
 
         var stale = new List<Vector2I>();
         foreach (var key in _chunks.Keys)
-            if (!_needed.Contains(key)) stale.Add(key);
+            if (!_needed.ContainsKey(key)) stale.Add(key);
         foreach (var key in stale)
         {
             _chunks[key].Root.QueueFree();
             _chunks.Remove(key);
         }
 
-        // Closest chunks first: the thread pool runs work roughly in submission order.
-        wanted.Sort((a, b) => a.distSq.CompareTo(b.distSq));
-        foreach (var (key, _) in wanted)
+        foreach (var job in _inFlight.Values)
+            if (!_needed.TryGetValue(job.Key, out bool distant) || distant != job.Distant || job.Revision != _revision)
+                job.Cancellation.Cancel();
+
+        _wanted.Sort((a, b) => a.Priority.CompareTo(b.Priority));
+    }
+
+    bool ViewChanged() => _lastView.Origin.DistanceSquaredTo(_camera.GlobalPosition) > 1 ||
+        _lastView.Basis.Z.Dot(_camera.GlobalBasis.Z) < Mathf.Cos(Mathf.DegToRad(Mathf.Min(2.5f, _camera.Fov * 0.1f))) ||
+        Math.Abs(Mathf.Tan(Mathf.DegToRad(_lastFov) / 2) / Mathf.Tan(Mathf.DegToRad(_camera.Fov) / 2) - 1) > 0.03f ||
+        _lastViewportSize != GetViewport().GetVisibleRect().Size ||
+        _lastReflection != (_water?.ReflectionsEnabled == true);
+
+    static Plane[] CopyFrustum(Camera3D camera)
+    {
+        var frustum = camera.GetFrustum();
+        var planes = new Plane[frustum.Count];
+        frustum.CopyTo(planes, 0);
+        return planes;
+    }
+
+    static Plane[] ReflectedFrustum(Plane[] frustum)
+    {
+        // Reflect the current view directly, so loading never uses the mirror's previous frame.
+        var planes = new Plane[frustum.Length];
+        for (int i = 0; i < planes.Length; i++)
         {
-            _inFlight.Add(key);
-            var k = key;
+            var plane = frustum[i];
+            var normal = plane.Normal;
+            planes[i] = new Plane(new Vector3(normal.X, -normal.Y, normal.Z),
+                plane.D - 2 * (float)Terrain.WaterLevel * normal.Y);
+        }
+        return planes;
+    }
+
+    static bool InPhotoFrame(Vector2I key, Plane[] planes, float margin)
+    {
+        if (planes.Length == 0) return false;
+        // Conservative bounds include this terrain generator's elevations and tree crowns.
+        var center = new Vector3((key.X + 0.5f) * ChunkSize, 48, (key.Y + 0.5f) * ChunkSize);
+        var halfSize = new Vector3(ChunkSize / 2, 80, ChunkSize / 2);
+        foreach (var plane in planes)
+        {
+            float radius = plane.Normal.Abs().Dot(halfSize);
+            if (plane.DistanceTo(center) - radius > margin) return false;
+        }
+        return true;
+    }
+
+    void StartGeneration()
+    {
+        foreach (var (key, _) in _wanted)
+        {
+            if (_inFlight.Count >= MaxGenerationJobs) break;
+            if (_inFlight.ContainsKey(key) || _failed.Contains(key)) continue;
+            bool distant = _needed[key];
+            if (_chunks.TryGetValue(key, out var chunk) && chunk.Distant == distant) continue;
+            var job = new GenerationJob { Key = key, Distant = distant, Revision = _revision };
+            _inFlight.Add(key, job);
             Task.Run(() =>
             {
-                try { _ready.Enqueue(Generate(k)); }
-                catch (Exception e) { GD.PushError($"Chunk {k} failed: {e}"); }
+                ChunkData data = null;
+                Exception error = null;
+                try { data = Generate(job.Key, job.Distant, job.Cancellation.Token); }
+                catch (OperationCanceledException) { }
+                catch (Exception e) { error = e; }
+                _ready.Enqueue(new GenerationResult(job, data, error));
             });
         }
     }
 
-    static ChunkData Generate(Vector2I key)
+    static ChunkData Generate(Vector2I key, bool distant, CancellationToken cancellation)
     {
         double originX = key.X * ChunkSize, originZ = key.Y * ChunkSize;
         double step = ChunkSize / Segments;
         var verts = new Vector3[Side * Side];
         var normals = new Vector3[Side * Side];
+        var trailEdges = new Vector2[Side * Side];
+        var trails = TrailNetwork.ForChunk(key.X, key.Y);
         for (int gz = 0; gz < Side; gz++)
         {
+            cancellation.ThrowIfCancellationRequested();
             double wz = originZ + gz * step;
             for (int gx = 0; gx < Side; gx++)
             {
@@ -233,25 +396,40 @@ public partial class ChunkManager : Node3D
                 // World-space finite differences give identical normals on shared chunk borders.
                 var (nx, ny, nz) = Terrain.Normal(wx, wz);
                 normals[i] = new Vector3((float)nx, (float)ny, (float)nz);
+                trailEdges[i] = new Vector2(trails.DistanceToEdge(wx, wz), 0);
             }
         }
-        var (batches, colliders) = ChunkProps.Generate(key.X, key.Y);
-        return new ChunkData { Key = key, Vertices = verts, Normals = normals, Batches = batches, Colliders = colliders };
+        cancellation.ThrowIfCancellationRequested();
+        var (batches, colliders) = distant ? ChunkProps.GenerateDistant(key.X, key.Y, trails)
+            : ChunkProps.Generate(key.X, key.Y, trails);
+        cancellation.ThrowIfCancellationRequested();
+        return new ChunkData { Key = key, Distant = distant, Vertices = verts, Normals = normals, TrailEdges = trailEdges,
+            Batches = batches, Colliders = colliders };
     }
 
     bool UploadReady()
     {
         bool created = false;
-        for (int n = 0; n < MaxUploadsPerFrame && _ready.TryDequeue(out var data); n++)
+        for (int n = 0; n < MaxUploadsPerFrame && _ready.TryDequeue(out var result);)
         {
-            _inFlight.Remove(data.Key);
-            if (!_needed.Contains(data.Key) || _chunks.ContainsKey(data.Key))
+            var job = result.Job;
+            _inFlight.Remove(job.Key);
+            bool cancelled = job.Cancellation.IsCancellationRequested;
+            job.Cancellation.Dispose();
+            if (cancelled || job.Revision != _revision || !_needed.TryGetValue(job.Key, out bool distant) || distant != job.Distant) continue;
+            if (result.Error != null)
             {
-                n--; // discarding a stale result costs nothing, don't count it
+                _failed.Add(job.Key);
+                GD.PushError($"Chunk {job.Key} failed: {result.Error}");
                 continue;
             }
+            var data = result.Data;
+            if (data == null) continue;
+            n++;
+            if (_chunks.Remove(data.Key, out var old)) old.Root.QueueFree();
 
-            var chunk = new Chunk { Root = new Node3D { Name = $"Chunk_{data.Key.X}_{data.Key.Y}" }, Colliders = data.Colliders };
+            var chunk = new Chunk { Root = new Node3D { Name = $"Chunk_{data.Key.X}_{data.Key.Y}" },
+                Distant = data.Distant, Colliders = data.Colliders };
             chunk.Root.AddChild(BuildTerrain(data));
             foreach (var batch in data.Batches)
             {
@@ -319,8 +497,8 @@ public partial class ChunkManager : Node3D
         // shadow cascade), and far ones are barely visible through the haze anyway.
         bool shadows = CastPropShadows && !DebugNoTreeShadows;
         float split = Mathf.Min(_treeShadowEnd, _treeDetail);
-        if (split > 0) chunk.Trees.Add(AddRanged(chunk, mm, batch.Center, 0, split, shadows));
-        chunk.Trees.Add(AddRanged(chunk, mm, batch.Center, split, _treeDetail, false));
+        if (split > 0) AddRanged(chunk, mm, batch.Center, 0, split, shadows);
+        chunk.Trees.Add(AddRanged(chunk, mm, batch.Center, split, TreeDetailDistance, false));
     }
 
     /// <summary>One undergrowth model in the chunk: drawn only nearby, no shadows, not in the water mirror.</summary>
@@ -338,7 +516,7 @@ public partial class ChunkManager : Node3D
         };
         var node = AddRanged(chunk, mm, batch.Center, 0, k.DrawDistance * _plantScale, false);
         node.Layers = Water.GrassLayer;
-        chunk.Trees.Add(node);
+        chunk.Plants.Add((node, k.DrawDistance * _plantScale));
     }
 
     /// <summary>All of the chunk's far trees as camera-facing pictures, in one draw call.</summary>
@@ -353,14 +531,19 @@ public partial class ChunkManager : Node3D
             InstanceCount = batch.Count,
             Buffer = batch.Buffer,
         };
-        float end = PropRadius * ChunkSize + ChunkSize * 0.5f;
-        foreach (var arg in OS.GetCmdlineUserArgs())
-            if (arg.StartsWith("--tree-end=")) end = float.Parse(arg.Substring(11), System.Globalization.CultureInfo.InvariantCulture);
-        var node = AddRanged(chunk, mm, batch.Center, _treeDetail, end, false);
+        var node = AddRanged(chunk, mm, batch.Center, chunk.Distant ? 0 : TreeDetailDistance, ImpostorDistance(), false);
         node.MaterialOverride = _impostors.Material;
         // Billboards turn to the camera, so their bounds must cover any rotation.
         node.ExtraCullMargin = 12f;
-        chunk.Trees.Add(node);
+        chunk.Impostors.Add(node);
+    }
+
+    float ImpostorDistance()
+    {
+        float end = (_photoActive ? PhotoRadius : PropRadius) * ChunkSize + ChunkSize * 0.5f;
+        foreach (var arg in OS.GetCmdlineUserArgs())
+            if (arg.StartsWith("--tree-end=")) end = float.Parse(arg.Substring(11), System.Globalization.CultureInfo.InvariantCulture);
+        return end;
     }
 
     MultiMeshInstance3D AddRanged(Chunk chunk, MultiMesh mm, Vector2 center, float begin, float end, bool shadows)
@@ -388,6 +571,7 @@ public partial class ChunkManager : Node3D
         arrays[(int)Mesh.ArrayType.Vertex] = data.Vertices;
         arrays[(int)Mesh.ArrayType.Normal] = data.Normals;
         arrays[(int)Mesh.ArrayType.TexUV] = _uvs;
+        arrays[(int)Mesh.ArrayType.TexUV2] = data.TrailEdges;
         arrays[(int)Mesh.ArrayType.Index] = _indices;
         var mesh = new ArrayMesh();
         mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
@@ -403,18 +587,32 @@ public partial class ChunkManager : Node3D
     {
         int dx = key.X - _playerChunk.X, dz = key.Y - _playerChunk.Y;
         int distSq = dx * dx + dz * dz;
-        bool props = distSq <= PropRadius * PropRadius + 1;
-        bool grass = distSq <= GrassRadius * GrassRadius + 1;
-        foreach (var node in chunk.Props) node.Visible = props;
+        bool props = distSq <= PropRadius * PropRadius * _detailScale * _detailScale + 1;
+        bool grass = distSq <= GrassRadius * GrassRadius * _detailScale * _detailScale + 1;
+        foreach (var node in chunk.Props)
+        {
+            node.Visible = props;
+            node.CastShadow = CastPropShadows && distSq <= PropRadius * PropRadius + 1
+                ? GeometryInstance3D.ShadowCastingSetting.On : GeometryInstance3D.ShadowCastingSetting.Off;
+        }
         foreach (var (node, _) in chunk.Grass) node.Visible = grass;
+        float detailEnd = TreeDetailDistance;
+        foreach (var node in chunk.Trees) node.VisibilityRangeEnd = detailEnd;
+        foreach (var (node, distance) in chunk.Plants) node.VisibilityRangeEnd = distance * _detailScale;
+        float treeEnd = ImpostorDistance();
+        foreach (var node in chunk.Impostors)
+        {
+            node.VisibilityRangeBegin = chunk.Distant ? 0 : detailEnd;
+            node.VisibilityRangeEnd = treeEnd;
+        }
     }
 
-    static void ApplyGrassLod(Chunk chunk, Vector2 at)
+    void ApplyGrassLod(Chunk chunk, Vector2 at)
     {
         foreach (var (node, batch) in chunk.Grass)
         {
             if (!node.Visible) continue;
-            float distance = Mathf.Max(0, batch.Center.DistanceTo(at) - batch.Radius);
+            float distance = Mathf.Max(0, batch.Center.DistanceTo(at) - batch.Radius) / _detailScale;
             float t = Mathf.Clamp((distance - GrassLodNear) / (GrassLodFar - GrassLodNear), 0, 1);
             float fraction = 1 - (1 - GrassLodMinFraction) * t * t * (3 - 2 * t);
             node.Multimesh.VisibleInstanceCount = Mathf.Max(1, Mathf.RoundToInt(batch.Count * fraction));

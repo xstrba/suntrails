@@ -8,6 +8,7 @@ render_mode cull_disabled, diffuse_lambert, specular_disabled;
 
 uniform float lod_near = 12.0;
 uniform float lod_far = 55.0;
+uniform float detail_scale = 1.0;
 uniform float far_width = 3.0;
 uniform vec3 backlight = vec3(0.2, 0.26, 0.06);
 // Palette (sRGB, from the MegaKit grass texture).
@@ -38,7 +39,7 @@ void vertex() {
 	float tip = UV.y * UV.y;
 	float wave = sin(TIME * 1.2 + world.x * 0.32 + world.z * 0.18) * 0.07
 		+ cos(TIME * 2.4 + world.x * 0.75) * 0.018;
-	float widen = smoothstep(lod_near, lod_far, length(world.xz - CAMERA_POSITION_WORLD.xz)) * (far_width - 1.0);
+	float widen = smoothstep(lod_near, lod_far, length(world.xz - CAMERA_POSITION_WORLD.xz) / detail_scale) * (far_width - 1.0);
 	VERTEX += vec3(wave * tip, 0.0, wave * 0.45 * tip) + vec3(UV2.x, 0.0, UV2.y) * widen;
 	// Soft, up-facing shading (in model space; clumps are only rotated about Y and sheared slightly).
 	NORMAL = normalize(mix(NORMAL, vec3(0.0, 1.0, 0.0), 0.75));

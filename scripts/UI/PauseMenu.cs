@@ -19,7 +19,6 @@ public partial class PauseMenu : CanvasLayer
 
     ChunkManager _chunks;
     Water _water;
-    Player _player;
     DirectionalLight3D _sun;
     Godot.Environment _env;
 
@@ -37,7 +36,6 @@ public partial class PauseMenu : CanvasLayer
         ProcessMode = ProcessModeEnum.Always; // keeps working while the game is paused
         _chunks = GetNode<ChunkManager>("../ChunkManager");
         _water = GetNode<Water>("../Water");
-        _player = GetNode<Player>("../Player");
         _sun = GetNode<DirectionalLight3D>("../Sun");
         _env = GetNode<WorldEnvironment>("../WorldEnvironment").Environment;
 
@@ -116,8 +114,6 @@ public partial class PauseMenu : CanvasLayer
         DisplayServer.WindowSetVsyncMode(_s.VSync ? DisplayServer.VSyncMode.Enabled : DisplayServer.VSyncMode.Disabled);
         foreach (var arg in OS.GetCmdlineUserArgs()) // benchmarking override
             if (arg == "--no-vsync") DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
-
-        _player.Camera.Far = _s.RenderDistance * ChunkManager.ChunkSize + 120;
     }
 
     // ---- UI -----------------------------------------------------------------------------------

@@ -33,6 +33,10 @@ public static class ChunkProps
     sealed class Rock { public double X, Y, Z, Sx, Sy, Sz, RotX, RotY, RotZ; }
 
     public static (List<InstanceBatch> batches, List<Collider> colliders) Generate(int cx, int cz)
+        => Generate(cx, cz, TrailNetwork.ForChunk(cx, cz));
+
+    internal static (List<InstanceBatch> batches, List<Collider> colliders) Generate(int cx, int cz,
+        TrailNetwork.ChunkTrails trails)
     {
         double size = ChunkManager.ChunkSize;
         double originX = cx * size, originZ = cz * size;
@@ -41,7 +45,7 @@ public static class ChunkProps
         // Shape variation draws from its own stream, so rock and grass layout is unchanged.
         var ground = new GroundSampler(originX, originZ);
         var rocks = new[] { new List<Rock>(), new List<Rock>(), new List<Rock>() };
-        var trees = PlaceTrees(cx, cz, originX, originZ, ground, seed);
+        var trees = PlaceTrees(cx, cz, originX, originZ, ground, seed, trails);
 
         // Rock clusters: denser on rocky shorelines and mountain tops.
         void AddRock(double wx, double wz, double minScale, double maxScale)
@@ -86,20 +90,72 @@ public static class ChunkProps
             }
         }
 
+        var center = new Vector2((float)(originX + size / 2), (float)(originZ + size / 2));
+        var (batches, colliders) = BuildTreeBatches(trees, center, impostorsOnly: false);
+
+        for (int v = 0; v < rocks.Length; v++)
+        {
+            var list = rocks[v];
+            list.RemoveAll(rock => trails.DistanceToEdge(rock.X, rock.Z, TrailNetwork.WalkwayHalfWidth) <
+                Math.Sqrt(rock.Sx * rock.Sx + rock.Sz * rock.Sz) + 0.25);
+        }
+        PlaceTrailStones(originX, originZ, ground, seed, trails, rocks);
+        for (int v = 0; v < rocks.Length; v++)
+        {
+            var list = rocks[v];
+            if (list.Count == 0) continue;
+            var buf = new float[list.Count * Stride];
+            for (int i = 0; i < list.Count; i++)
+            {
+                var r = list[i];
+                // Varied stone hues: cool slate, warm granite, mossy grey.
+                double shade = 0.62 + rand() * 0.42;
+                double warm = (rand() - 0.5) * 0.08;
+                Write(buf, i, MeshBuilder.EulerXYZ((float)r.RotX, (float)r.RotY, (float)r.RotZ),
+                    new Vector3((float)r.Sx, (float)r.Sy, (float)r.Sz), new Vector3((float)r.X, (float)r.Y, (float)r.Z),
+                    new Color((float)(shade + warm), (float)shade, (float)(shade - warm * 0.6)));
+                double maxHoriz = Math.Max(r.Sx, r.Sz);
+                if (maxHoriz >= 0.55)
+                    colliders.Add(new Collider((float)r.X, (float)r.Z, (float)(0.58 * maxHoriz), (float)(r.Y + 0.65 * r.Sy)));
+            }
+            batches.Add(new InstanceBatch { Kind = PropKind.Rock, Variant = v, Count = list.Count, Buffer = buf });
+        }
+
+        batches.AddRange(PlacePlants(originX, originZ, ground, seed, center, trails));
+        batches.AddRange(GenerateGrass(rand, originX, originZ, ground, trails));
+        return (batches, colliders);
+    }
+
+    /// <summary>Far photo chunks retain the same trees as nearby chunks using only their impostors.</summary>
+    internal static (List<InstanceBatch> batches, List<Collider> colliders) GenerateDistant(int cx, int cz,
+        TrailNetwork.ChunkTrails trails)
+    {
+        double size = ChunkManager.ChunkSize;
+        double originX = cx * size, originZ = cz * size;
+        uint seed = (uint)Math.Floor(Rng.Hash2D(cx, cz, 9187) * 0xffffffff);
+        var ground = new GroundSampler(originX, originZ);
+        var trees = PlaceTrees(cx, cz, originX, originZ, ground, seed, trails);
+        var center = new Vector2((float)(originX + size / 2), (float)(originZ + size / 2));
+        return BuildTreeBatches(trees, center, impostorsOnly: true);
+    }
+
+    static (List<InstanceBatch> batches, List<Collider> colliders) BuildTreeBatches(List<Tree> trees,
+        Vector2 center, bool impostorsOnly)
+    {
         var batches = new List<InstanceBatch>();
         var colliders = new List<Collider>();
 
         // Trees: one batch per species variant, positions relative to the chunk centre
         // (the chunk's tree nodes sit there, so distance-based LOD measures from it).
-        var center = new Vector2((float)(originX + size / 2), (float)(originZ + size / 2));
         var groups = new Dictionary<int, List<Tree>>();
         foreach (var t in trees)
         {
+            float radius = TreeAssets.Get(TreeKind.All[t.Kind].Models[t.Model]).TrunkRadius * (float)t.Scale;
+            colliders.Add(new Collider((float)t.X, (float)t.Z, radius + 0.05f, float.MaxValue));
+            if (impostorsOnly) continue;
             int key = TreeKind.Combo(t.Kind, t.Model);
             if (!groups.TryGetValue(key, out var list)) groups[key] = list = new List<Tree>();
             list.Add(t);
-            float radius = TreeAssets.Get(TreeKind.All[t.Kind].Models[t.Model]).TrunkRadius * (float)t.Scale;
-            colliders.Add(new Collider((float)t.X, (float)t.Z, radius + 0.05f, float.MaxValue));
         }
         // Full trees: 12 transform floats, 4 colour (unused, white), 4 custom (leaf tint, birch).
         foreach (var (key, list) in groups)
@@ -130,30 +186,33 @@ public static class ChunkProps
             batches.Add(new InstanceBatch { Kind = PropKind.TreeImpostor, Count = trees.Count, Buffer = buf, Center = center });
         }
 
-        for (int v = 0; v < rocks.Length; v++)
-        {
-            var list = rocks[v];
-            if (list.Count == 0) continue;
-            var buf = new float[list.Count * Stride];
-            for (int i = 0; i < list.Count; i++)
-            {
-                var r = list[i];
-                // Varied stone hues: cool slate, warm granite, mossy grey.
-                double shade = 0.62 + rand() * 0.42;
-                double warm = (rand() - 0.5) * 0.08;
-                Write(buf, i, MeshBuilder.EulerXYZ((float)r.RotX, (float)r.RotY, (float)r.RotZ),
-                    new Vector3((float)r.Sx, (float)r.Sy, (float)r.Sz), new Vector3((float)r.X, (float)r.Y, (float)r.Z),
-                    new Color((float)(shade + warm), (float)shade, (float)(shade - warm * 0.6)));
-                double maxHoriz = Math.Max(r.Sx, r.Sz);
-                if (maxHoriz >= 0.55)
-                    colliders.Add(new Collider((float)r.X, (float)r.Z, (float)(0.58 * maxHoriz), (float)(r.Y + 0.65 * r.Sy)));
-            }
-            batches.Add(new InstanceBatch { Kind = PropKind.Rock, Variant = v, Count = list.Count, Buffer = buf });
-        }
-
-        batches.AddRange(PlacePlants(originX, originZ, ground, seed, center));
-        batches.AddRange(GenerateGrass(rand, originX, originZ, ground));
         return (batches, colliders);
+    }
+
+    // Small, low stones sit in the same batches as the boulders and have no blocking collider.
+    static void PlaceTrailStones(double originX, double originZ, GroundSampler ground, uint seed,
+        TrailNetwork.ChunkTrails trails, List<Rock>[] rocks)
+    {
+        var rand = Rng.Mulberry32(seed ^ 0x7BC36E91u);
+        const int count = 14;
+        double cell = ChunkManager.ChunkSize / count;
+        for (int z = 0; z < count; z++)
+            for (int x = 0; x < count; x++)
+            {
+                double wx = originX + (x + rand()) * cell;
+                double wz = originZ + (z + rand()) * cell;
+                double edge = trails.DistanceToEdge(wx, wz, TrailNetwork.WalkwayHalfWidth);
+                if (edge < 0.1 || edge > 2.2 || rand() > 0.38) continue;
+                double height = ground.Sample(wx, wz);
+                if (height < Terrain.WaterLevel + 0.9) continue;
+                double size = 0.12 + rand() * 0.18;
+                rocks[(int)(rand() * rocks.Length)].Add(new Rock
+                {
+                    X = wx, Y = height - size * 0.15, Z = wz,
+                    Sx = size, Sy = size * 0.5, Sz = size * (0.7 + rand() * 0.4),
+                    RotY = rand() * Math.PI * 2,
+                });
+            }
     }
 
     /// <summary>
@@ -161,7 +220,8 @@ public static class ChunkProps
     /// the local forest density, so dense forest, thinning edges and lone meadow trees all come
     /// from one rule. Species, shape variant, size, lean and tint are picked per tree.
     /// </summary>
-    static List<Tree> PlaceTrees(int cx, int cz, double originX, double originZ, GroundSampler ground, uint seed)
+    static List<Tree> PlaceTrees(int cx, int cz, double originX, double originZ, GroundSampler ground, uint seed,
+        TrailNetwork.ChunkTrails trails)
     {
         var rand = Rng.Mulberry32(seed ^ 0x51ED27A3u);
         var trees = new List<Tree>();
@@ -188,6 +248,7 @@ public static class ChunkProps
                 double scale = (k.ScaleMin + scaleRoll * (k.ScaleMax - k.ScaleMin)) * (0.9 + 0.15 * cover);
                 // Seat the trunk on the lowest ground under it so the downhill side never floats.
                 double r = asset.TrunkRadius * scale * 1.3;
+                if (trails.DistanceToEdge(x, z) < r + 0.8) continue;
                 double g = ground.Sample(x, z);
                 for (int i = 0; i < 4; i++)
                     g = Math.Min(g, ground.Sample(x + Math.Cos(i * Math.PI / 2) * r, z + Math.Sin(i * Math.PI / 2) * r));
@@ -212,7 +273,8 @@ public static class ChunkProps
     /// Undergrowth on a jittered ~1.7 m grid: each cell may hold one plant, picked by the local
     /// environment (see PlantKind.Weights). One batch per plant model, relative to the chunk centre.
     /// </summary>
-    static IEnumerable<InstanceBatch> PlacePlants(double originX, double originZ, GroundSampler ground, uint seed, Vector2 center)
+    static IEnumerable<InstanceBatch> PlacePlants(double originX, double originZ, GroundSampler ground, uint seed,
+        Vector2 center, TrailNetwork.ChunkTrails trails)
     {
         var rand = Rng.Mulberry32(seed ^ 0x2C1B3C6Du);
         const int n = 28;
@@ -230,6 +292,16 @@ public static class ChunkProps
                 double cover = Forest.Cover(x, z, moisture);
                 double flowers = Math.Clamp(FlowerNoise.FbmRotated(x * 0.03, z * 0.03, 2) * 1.6 + 0.2, 0, 1);
                 PlantKind.Weights(w, h, slope, cover, flowers);
+                double edge = trails.DistanceToEdge(x, z, TrailNetwork.WalkwayHalfWidth);
+                if (edge > 0.1 && edge < 3.5 && h > Terrain.WaterLevel + 0.9 && h < Terrain.GrassLine && slope < 0.4)
+                {
+                    double verge = (1 - Mathf.SmoothStep(1, 3.5, edge)) * (0.3 + flowers * 0.7);
+                    w[PlantKind.Flowers3] += verge * 0.14;
+                    w[PlantKind.Flowers4] += verge * 0.1;
+                    w[PlantKind.Clover1] += verge * 0.12;
+                    w[PlantKind.Mushroom] += verge * 0.025;
+                    w[PlantKind.FlowerBush] += verge * 0.025;
+                }
                 // One roll per cell: walk the cumulative chances.
                 int kind = -1;
                 double acc = 0;
@@ -241,6 +313,9 @@ public static class ChunkProps
                 if (kind < 0) continue;
                 var k = PlantKind.All[kind];
                 float sc = (float)(k.ScaleMin + scaleRoll * (k.ScaleMax - k.ScaleMin));
+                bool bush = kind is PlantKind.Bush or PlantKind.FlowerBush or PlantKind.BigLeaf;
+                double clearance = bush ? sc * 1.2 + 0.15 : sc * 0.35;
+                if (edge < clearance) continue;
                 float b = 0.85f + (float)shade * 0.3f;
                 var tint = new Color(k.Tint.R * b, k.Tint.G * b, k.Tint.B * b).SrgbToLinear();
                 (lists[kind] ??= new()).Add((new Vector3((float)x - center.X, (float)h - 0.03f, (float)z - center.Y), sc, (float)(rot * Mathf.Tau), tint));
@@ -259,7 +334,8 @@ public static class ChunkProps
         }
     }
 
-    static IEnumerable<InstanceBatch> GenerateGrass(Func<double> rand, double originX, double originZ, GroundSampler ground)
+    static IEnumerable<InstanceBatch> GenerateGrass(Func<double> rand, double originX, double originZ, GroundSampler ground,
+        TrailNetwork.ChunkTrails trails)
     {
         // Variable-density clumps: sparse near water and mountains.
         var spots = new List<(double x, double y, double z, double s, double r)>();
@@ -300,6 +376,24 @@ public static class ChunkProps
                     spots.Add((ox, Terrain.Height(ox, oz) - 0.05, oz, s2, rand() * Math.PI * 2));
                 }
             }
+        // Vegetation reclaims the green shoulders inside the painted road footprint.
+        // Only the narrow walking line suppresses growth; the fringe keeps substantial tufts.
+        int kept = 0;
+        for (int i = 0; i < spots.Count; i++)
+        {
+            var spot = spots[i];
+            double edge = trails.DistanceToEdge(spot.x, spot.z, TrailNetwork.WalkwayHalfWidth);
+            if (edge < -0.1) continue;
+            if (edge < 1.0)
+            {
+                double patch = FlowerNoise.Noise(spot.x * 0.7, spot.z * 0.7) * 0.5 + 0.5;
+                double growth = Mathf.SmoothStep(-0.2, 0.9, edge + (patch - 0.5) * 0.8);
+                if (Rng.Hash2D((int)Math.Floor(spot.x * 11), (int)Math.Floor(spot.z * 11), 6217) > growth) continue;
+                spot.s *= 0.6 + growth * 0.4;
+            }
+            spots[kept++] = spot;
+        }
+        spots.RemoveRange(kept, spots.Count - kept);
         if (spots.Count == 0) yield break;
 
         // Build every clump, then split them into 12 m cells that can be culled and thinned separately.

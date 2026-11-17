@@ -94,6 +94,7 @@ public partial class PhotoMode : Node
     {
         Active = !Active;
         _player.PhotoCameraActive = Active;
+        _chunks.SetPhotoMode(Active);
         _camera = _player.Camera;
         _ui.Visible = _lensLayer.Visible = Active;
         if (Active)
@@ -183,7 +184,11 @@ public partial class PhotoMode : Node
         if (_flash.Color.A > 0)
             _flash.Color = new Color(1, 1, 1, Mathf.Max(0, _flash.Color.A - (float)delta * 4));
         if (!Active) return;
-        if (_autoShotAt > 0 && (_autoShotAt -= delta) <= 0) TakePhoto();
+        if (_autoShotAt > 0 && (_autoShotAt -= delta) <= 0)
+        {
+            if (_chunks.PreparePhotoCapture()) TakePhoto();
+            else _autoShotAt = 0.25;
+        }
         UpdateShake(delta);
         if (_exposing) StepExposure(delta);
 
@@ -261,6 +266,13 @@ public partial class PhotoMode : Node
     void TakePhoto()
     {
         if (IsCapturing) return;
+        if (!_chunks.PreparePhotoCapture())
+        {
+            ShowMessage(_chunks.FailedChunks > 0
+                ? "Some scenery couldn't load. Try lowering the graphics preset in Settings."
+                : "Loading distant scenery… Hold the camera steady, then try again.");
+            return;
+        }
         double shutter = CameraModel.ShutterInUse(_aperture, _shutter, _iso, _ev, Brightness);
         var position = _camera.GlobalPosition;
         var shot = new PhotoDetails(DateTimeOffset.UtcNow, position.X, position.Y, position.Z,
@@ -457,12 +469,14 @@ public partial class PhotoMode : Node
         _flash.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         feedback.AddChild(_flash);
         _toast = MakeLabel(Colors.White);
-        _toast.SetAnchorsPreset(Control.LayoutPreset.CenterTop);
         _toast.HorizontalAlignment = HorizontalAlignment.Center;
-        _toast.Position = new Vector2(-400, 56);
-        _toast.Size = new Vector2(800, 48);
+        _toast.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _toast.Modulate = new Color(1, 1, 1, 0);
         feedback.AddChild(_toast);
+        _toast.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopWide);
+        _toast.OffsetLeft = 28;
+        _toast.OffsetRight = -28;
+        _toast.OffsetTop = 56;
     }
 
     static Label MakeLabel(Color color)
@@ -509,6 +523,10 @@ public partial class PhotoMode : Node
         // Rule of thumb: handheld, a shutter slower than 1/focal-length shows shake.
         if (!_tripod && shutter > 1.0 / Math.Max(_focal, 30))
             _status.Text += "  ·  " + UiText.Get("Slow for handheld: use a tripod or hold steady");
+        if (_chunks.FailedChunks > 0)
+            _status.Text += "\n" + UiText.Get("Some scenery couldn't load. Try lowering the graphics preset in Settings.");
+        else if (_chunks.PendingChunks > 0)
+            _status.Text += "\n" + UiText.Count("Loading scenery… {0} chunk", "Loading scenery… {0} chunks", _chunks.PendingChunks);
     }
 
     /// <summary>Frame corners, rule-of-thirds grid and the centre focus mark.</summary>

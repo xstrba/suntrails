@@ -8,6 +8,7 @@
 //   snow   - peaks (Poly Haven snow_02)
 // The PBR sets are packed as <albedo RGB + height A> and <normal XY + roughness B>.
 // Layers with no weight at a pixel are skipped, so most pixels sample only one or two.
+// Trails blend worn earth over these layers using a signed edge distance in UV2.x.
 shader_type spatial;
 render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 
@@ -35,6 +36,9 @@ varying vec3 world_normal;
 // Low-frequency noise, evaluated per vertex and interpolated (it varies over tens of metres).
 varying float macro_n;
 varying float mid_n;
+// Signed metres from the nearest trail edge, shared with vegetation placement.
+varying float trail_distance;
+varying float trail_patches;
 
 float hash13(vec3 p) {
 	p = fract(p * 0.1031);
@@ -59,6 +63,8 @@ void vertex() {
 	world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 	macro_n = vnoise(world_pos * 0.03);
 	mid_n = vnoise(world_pos * 0.17 + 17.0);
+	trail_distance = UV2.x;
+	trail_patches = vnoise(vec3(world_pos.x * 0.4, 0.0, world_pos.z * 0.4));
 }
 
 struct Layer {
@@ -241,6 +247,30 @@ void fragment() {
 	if (scree_mask > 0.001) ground = height_blend(ground, top_layer(scree_ah, scree_nr, world_pos, dpdx, dpdy, scree_tile, n_geo, tl), scree_mask);
 	if (cliff_mask > 0.001) ground = height_blend(ground, cliff_layer(world_pos, dpdx, dpdy, n_geo, tl), cliff_mask);
 	if (snow_mask > 0.001) ground = height_blend(ground, top_layer(snow_ah, snow_nr, world_pos, dpdx, dpdy, snow_tile, n_geo, tl), snow_mask);
+
+	// Warm painted earth, with moss and short grass reclaiming an irregular shoulder.
+	// Detail is evaluated only near paths; the meadow keeps its usual sampling cost.
+	if (trail_distance < 2.4) {
+		float patches = trail_patches;
+		float edge = trail_distance + 0.2 + (patches - 0.5) * 1.3 + (mid_n - 0.5) * 0.6;
+		float dry = smoothstep(water_level + 0.3, water_level + 1.0, world_pos.y) * (1.0 - snow_mask);
+		float wear = (1.0 - smoothstep(-0.65, 0.8, edge)) * dry;
+		float verge = (1.0 - smoothstep(-0.3, 2.0, edge)) * dry;
+		float moss = smoothstep(-1.2, 0.2, edge + (patches - 0.5) * 0.7);
+
+		// Preserve broad brush-like patches and a little of the existing soil texture's relief.
+		vec3 grit = texture(sand_tex, world_pos.xz * 0.32).rgb;
+		float relief = smoothstep(0.06, 0.5, dot(grit, vec3(0.333)));
+		float brush = smoothstep(0.2, 0.8, patches * 0.6 + mid_n * 0.4);
+		float creases = (1.0 - smoothstep(0.025, 0.09, abs(relief - 0.4))) * smoothstep(0.2, 0.7, patches);
+		vec3 earth = mix(vec3(0.43, 0.32, 0.065), vec3(0.72, 0.56, 0.16), brush);
+		earth *= mix(0.72, 1.14, relief) * (1.0 - creases * 0.16);
+		vec3 moss_color = mix(grass * 1.1, vec3(0.22, 0.37, 0.025), patches * 0.65 + 0.2);
+		ground.albedo = mix(ground.albedo, moss_color, verge * moss * 0.85);
+		ground.albedo = mix(ground.albedo, earth, wear * (1.0 - moss * 0.8));
+		ground.normal = normalize(mix(ground.normal, n_geo, verge));
+		ground.roughness = mix(ground.roughness, 0.95, verge);
+	}
 
 	// Broad brightness variation over tens of metres hides any remaining repetition.
 	vec3 col = ground.albedo * mix(0.82, 1.12, macro_n);

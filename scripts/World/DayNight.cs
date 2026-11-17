@@ -44,6 +44,8 @@ public partial class DayNight : Node
     Godot.Environment _env;
     ShaderMaterial _sky;
     Water _water;
+    ChunkManager _chunks;
+    float _fogDistanceScale = 1;
     float _lastSpeed = 1f;
     double _cloudTime;
 
@@ -73,6 +75,7 @@ public partial class DayNight : Node
         _env = GetNode<WorldEnvironment>("../WorldEnvironment").Environment;
         _sky = (ShaderMaterial)_env.Sky.SkyMaterial;
         _water = GetNodeOrNull<Water>("../Water");
+        _chunks = GetNodeOrNull<ChunkManager>("../ChunkManager");
         foreach (var arg in OS.GetCmdlineUserArgs())
             if (arg.StartsWith("--time="))
             {
@@ -105,6 +108,8 @@ public partial class DayNight : Node
         float dt = Mathf.Min((float)delta, 0.1f);
         if (Speed > 0) TimeOfDay = Mathf.PosMod(TimeOfDay + dt * Speed / BaseCycleSeconds, 1f);
         _cloudTime += dt; // clouds keep drifting even while the clock is paused
+        _fogDistanceScale = Mathf.Lerp(_fogDistanceScale, _chunks?.AtmosphereDistanceScale ?? 1,
+            1 - Mathf.Exp(-4 * dt));
         Apply();
     }
 
@@ -146,7 +151,7 @@ public partial class DayNight : Node
         _env.FogLightColor = horizon;
         // Toned down from the web values: Godot's sky also lights the scene (ambient + reflections)
         // on top of these, which washed out the noon colours.
-        _env.FogDensity = fog * 0.8f;
+        _env.FogDensity = fog * 0.8f / _fogDistanceScale;
         _env.AmbientLightColor = hemiSky;
         _env.AmbientLightEnergy = hemi * 0.65f;
 

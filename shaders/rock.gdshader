@@ -82,6 +82,11 @@ void fragment() {
 
 	// Per-boulder tint, softened so boulders match the cliffs around them.
 	vec3 rock = ah.rgb * mix(vec3(1.0), COLOR.rgb, 0.45);
+	// Tiny path stones read as softly painted, pale pebbles against the warm earth.
+	float pebble = 1.0 - smoothstep(0.32, 0.55, rock_size);
+	moss *= 1.0 - pebble * 0.8;
+	rock = mix(rock, vec3(0.55, 0.57, 0.46) * (0.9 + ah.r * 0.3), pebble * 0.75);
+	n = normalize(mix(n, n_geo, pebble * 0.8));
 	ALBEDO = mix(rock, moss_color * (0.8 + 0.4 * patches), moss);
 	ROUGHNESS = mix(rough, 0.95, moss);
 	// Moss softens the surface detail it covers.
